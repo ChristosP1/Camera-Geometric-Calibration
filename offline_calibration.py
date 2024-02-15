@@ -156,11 +156,12 @@ def manual_corner_selection(event, x, y, flags, param):
         cv2.imshow("Manual Corners Selection (Press any key when all corners selected)", current_image)
 
 
-def sort_corners_clockwise(corners):
+def sort_corners_clockwise(corners, origin="top-left"):
     """
     Sorts given corner coordinates in clockwise order.
 
     :param corners: array of corner points ([x, y])
+    :param origin: which corner point starts the clockwise order (bottom-left, top-left, top-right, or bottom-right)
     :return: returns array of sorted corners
     """
     # Calculate the centroid of the corners
@@ -171,8 +172,15 @@ def sort_corners_clockwise(corners):
     bottom = sorted([corner for corner in corners if corner[1] >= centroid[1]], key=lambda point: point[0],
                     reverse=True)
 
-    # Concatenate top and bottom corners
-    return np.array(top + bottom, dtype="float32")
+    # Sort top and bottom corners depending on first element
+    if origin == "top-left":
+        return np.array(top + bottom, dtype="float32")
+    elif origin == "top-right":
+        return np.array([top[1]] + bottom + [top[0]], dtype="float32")
+    elif origin == "bottom-right":
+        return np.array(bottom + top, dtype="float32")
+    else:
+        return np.array([bottom[1]] + top + [bottom[0]], dtype="float32")
 
 
 def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspective_transform=True):
@@ -181,7 +189,7 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
     and interpolation using perspective transform for enhanced accuracy (use_perspective_transform parameter).
 
     :param corners: array of 4 corner points ([x, y])
-    :param chessboard_shape: chessboard number of squares vertically and horizontally (vertical, horizontal)
+    :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
     :param use_perspective_transform: interpolates using homogenous coordinates and perspective transform for enhanced
                                       accuracy if set to True, otherwise uses flat interpolation
     :return: returns array of 2D interpolated image points or None if wrong number of corners given (unequal to 4)
@@ -191,7 +199,7 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
         return None
 
     # Sort corners to (top-left, top-right, bottom-right, bottom-left)
-    corners = sort_corners_clockwise(corners)
+    corners = sort_corners_clockwise(corners, origin="top-left")
 
     # Calculate the maximum width and height
     max_width = max(np.linalg.norm(corners[1] - corners[0]), np.linalg.norm(corners[3] - corners[2]))
@@ -201,8 +209,8 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
     horizontal_step = max_width / (chessboard_shape[1] - 1)
     vertical_step = max_height / (chessboard_shape[0] - 1)
 
-    interpolated_corners = []
-
+    interpolated_row = []
+    interpolated_points = []
     # Perform perspective transform for accuracy improvement
     if use_perspective_transform:
         # Use maximum width and height to form destination coordinates for perspective transform
@@ -225,8 +233,11 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
                 # Divide point by its Z
                 point /= point[2]
 
-                # Append the X and Y of point to the list of projected corners
-                interpolated_corners.append(point[:2])
+                # Append the X and Y of point to the list of interpolated points in row
+                interpolated_row.append(point[:2])
+            # Append interpolated points in row to interpolated points
+            interpolated_points.append(interpolated_row)
+            interpolated_row = []
     # Flat interpolation
     else:
         for y in range(0, chessboard_shape[0]):
@@ -237,10 +248,23 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
                 # Interpolate the position of the current point between the known corners
                 point = corners[0] + point
 
-                # Append the point to the list of projected corners
-                interpolated_corners.append(point)
+                # Append the point to the list of interpolated points in row
+                interpolated_row.append(point)
+            # Append interpolated points in row to interpolated points
+            interpolated_points.append(interpolated_row)
+            interpolated_row = []
 
-    return np.array(interpolated_corners, dtype="float32")
+    # If change_point_order is True then point order will start from bottom-left and end on top-right
+    # moving through rows before changing column
+    # if False then point order will start at top-left and end on bottom-right
+    # moving through columns before changing row as already saved
+    interpolated_points = np.array(interpolated_points, dtype="float32")
+    if chessboard_shape[0] > chessboard_shape[1]:
+        interpolated_points = np.flip(interpolated_points, axis=0)
+        interpolated_points = np.transpose(interpolated_points, (1, 0, 2))
+
+    # Return (MxN, 1, 2) array to match automatic corner detection output
+    return np.reshape(interpolated_points, (-1, 1, 2))
 
 
 def extract_image_points(chessboard_shape, images_path="train_images", more_exact_corners=True,
@@ -250,7 +274,7 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
     corner detection fails, the user is given instructions to perform manual corner selection by clicking on a prompt
     window of the image.
 
-    :param chessboard_shape: chessboard number of squares vertically and horizontally (vertical, horizontal)
+    :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
     :param images_path: training images directory path
     :param more_exact_corners: increases corner accuracy with more exact corner positions if set to True, otherwise
                                keeps original corner positions.
@@ -334,7 +358,7 @@ def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_squ
 
     :param image_points: array of 2D chessboard image points for every image
     :param image_shape: shape of the images
-    :param chessboard_shape: chessboard number of squares vertically and horizontally (vertical, horizontal)
+    :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
     :param chessboard_square_size: chessboard square size in mm
     :param print_results: prints results of calibration if True
     :return: returns mean reprojection error, camera matrix, distortion coefficients, rotation vector, translation
@@ -379,7 +403,7 @@ def discard_bad_image_points(image_points, image_shape, chessboard_shape, chessb
 
     :param image_points: array of 2D chessboard image points for every image
     :param image_shape: shape of the images
-    :param chessboard_shape: chessboard number of squares vertically and horizontally (vertical, horizontal)
+    :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
     :param chessboard_square_size: chessboard square size in mm
     :param discard_threshold: threshold of error improvement when an image's points are excluded to discard them
     :return: returns array of 2D chessboard image points for every kept image, array of kept image point indexes,
@@ -427,7 +451,7 @@ def output_calibration_results(err, mtx, dist, rvecs, tvecs, in_std, ex_std, per
     :param per_view_err: per view reprojection error
     :param image_points: array of 2D chessboard image points for every image
     :param image_shape: shape of the images
-    :param chessboard_shape: chessboard number of squares vertically and horizontally (vertical, horizontal)
+    :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
     :param chessboard_square_size: chessboard square size in mm
     :param run: run number
     :param calibration_output_path: calibration output directory path
@@ -536,7 +560,7 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
 
 if __name__ == "__main__":
     chessboard_shape = (9, 6)
-    chessboard_square_size = 40
+    chessboard_square_size = 25
     images_path = "train_images2"
     plots_path = "plots"
     calibrations_path = "calibrations"
@@ -544,7 +568,7 @@ if __name__ == "__main__":
     # Extract image points from training images
     image_points, automatic_detections, image_shape = extract_image_points(chessboard_shape, images_path,
                                                                            more_exact_corners=True,
-                                                                           result_time_visible=500)
+                                                                           result_time_visible=1000)
 
     # Split images where points were detected automatically and manually and shuffle each split
     # Keep (max) 20 automatic detection images and 5 manual detection images for run 1
@@ -556,7 +580,6 @@ if __name__ == "__main__":
     image_points_manual = random.sample(image_points_manual, min(5, len(image_points_manual)))
     # Sort the selected 25 image sets to have images where points were detected automatically first
     image_points_25 = image_points_automatic + image_points_manual
-
 
     # Filter (max) 10 and 5 image sets from images where points were detected automatically for runs 2 and 3
     #image_points_10 = random.sample(image_points_automatic, min(10, len(image_points_automatic)))
