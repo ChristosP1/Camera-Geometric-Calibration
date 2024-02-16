@@ -78,11 +78,9 @@ def uniform_image_dimensions(directory_path):
 
     # Check if all images have the same dimensions
     if len(dimensions_set) == 1:
-        # print("All images have the same dimensions.")
         return img.shape[:2]
     else:
         show_warning("images_need_cropping")
-        # print("Not all images have the same dimensions. Proceeding to crop.")
 
     # Second pass to crop images
     cropped_img = None
@@ -352,6 +350,82 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
     return image_points, automatic_detections, image_shape
 
 
+def sample_image_points(image_points, automatic_detections, max_automatic=20, max_manual=5, seed=0):
+    """
+    Samples a subset of image points by keeping only image points from a subset of the total images.
+
+    :param image_points: 2D chessboard image points for every training image
+    :param automatic_detections: array of booleans of whether each training image's points were detected automatically
+    :param max_automatic: max images where points were detected automatically
+    :param max_manual: max images where points were detected manually
+    :param seed: seed for randomization
+    :return: returns array of sampled 2D chessboard automatic detection image points, array of sampled 2D chessboard
+             manual detection image points, the ids of the images that were sampled
+    """
+    # Seed for randomization
+    random.seed(seed)
+
+    # Split images where points were detected automatically and manually and shuffle each split
+    # Keep max automatic detection images
+    image_points_automatic = [points for points, automatic in zip(image_points, automatic_detections) if automatic]
+    random.shuffle(image_points_automatic)
+    image_points_automatic = random.sample(image_points_automatic, min(max_automatic, len(image_points_automatic)))
+
+    # Keep max manual detection images
+    image_points_manual = [points for points, automatic in zip(image_points, automatic_detections) if not automatic]
+    random.shuffle(image_points_manual)
+    image_points_manual = random.sample(image_points_manual, min(max_manual, len(image_points_manual)))
+
+    # Get the automatic detection image ids of the sampled points in the original array
+    image_points_automatic_tuples = [tuple(points.flatten()) for points in image_points_automatic]
+    image_points_automatic_idx = [idx + 1 for idx, points in enumerate(image_points)
+                                  if tuple(points.flatten()) in image_points_automatic_tuples]
+    # Get the manual detection image ids of the sampled image points in the original array
+    image_points_manual_tuples = [tuple(points.flatten()) for points in image_points_manual]
+    image_points_manual_idx = [idx + 1 for idx, points in enumerate(image_points)
+                               if tuple(points.flatten()) in image_points_manual_tuples]
+    # Combine sampled automatic detection and manual detection image ids
+    image_points_idx = sorted(image_points_automatic_idx + image_points_manual_idx)
+
+    return image_points_automatic, image_points_manual, image_points_idx
+
+
+def output_extracted_image_points(image_points, automatic_detections, image_shape, output_path="calibrations",
+                                  output_filename="extracted_image_points.npz"):
+    """
+    Outputs image point extraction outputs to file.
+
+    :param image_points: 2D chessboard image points for every training image
+    :param automatic_detections: array of booleans of whether each training image's points were detected automatically
+    :param image_shape: shape of the images
+    :param output_path: output directory path
+    :param output_filename: output file name (including extension)
+    """
+    np.savez(os.path.join(output_path, output_filename),
+             image_points=image_points, automatic_detections=automatic_detections, image_shape=image_shape)
+
+
+def load_extracted_image_points(input_path="calibrations", input_filename="extracted_image_points.npz"):
+    """
+    Loads image point extraction outputs from file.
+
+    :param input_path: output directory path
+    :param input_filename: output file name (including extension)
+    :return: returns loaded 2D chessboard image points for every training image, array of booleans of whether each
+             training image's points were detected automatically, shape of the images
+    """
+
+    # Load the saved image points
+    data = np.load(os.path.join(input_path, input_filename))
+
+    # Retrieve the arrays from the loaded data
+    image_points = data["image_points"]
+    automatic_detections = data["automatic_detections"]
+    image_shape = data["image_shape"]
+
+    return image_points, automatic_detections, image_shape
+
+
 def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_square_size, print_results=True):
     """
     Calibrates camera using extracted image points and calculated object points by estimating the camera parameters.
@@ -559,33 +633,39 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
 
 
 if __name__ == "__main__":
+    random.seed(0)
     chessboard_shape = (9, 6)
     chessboard_square_size = 25
     images_path = "train_images2"
     plots_path = "plots"
     calibrations_path = "calibrations"
-
+    """
     # Extract image points from training images
     image_points, automatic_detections, image_shape = extract_image_points(chessboard_shape, images_path,
                                                                            more_exact_corners=True,
-                                                                           result_time_visible=1000)
+                                                                           result_time_visible=1)
 
-    # Split images where points were detected automatically and manually and shuffle each split
+    # Save extracted image points to file
+    output_extracted_image_points(image_points, automatic_detections, image_shape, calibrations_path,
+                                  output_filename="extracted_image_points.npz")
+    """
+    # Load extracted image points from file (for pre-saved extraction)
+    image_points, \
+        automatic_detections, image_shape = load_extracted_image_points(calibrations_path,
+                                                                        input_filename="extracted_image_points.npz")
+
     # Keep (max) 20 automatic detection images and 5 manual detection images for run 1
-    image_points_automatic = [points for points, automatic in zip(image_points, automatic_detections) if automatic]
-    random.shuffle(image_points_automatic)
-    image_points_automatic = random.sample(image_points_automatic, min(20, len(image_points_automatic)))
-    image_points_manual = [points for points, automatic in zip(image_points, automatic_detections) if not automatic]
-    random.shuffle(image_points_manual)
-    image_points_manual = random.sample(image_points_manual, min(5, len(image_points_manual)))
+    image_points_automatic, image_points_manual,\
+        image_points_idx = sample_image_points(image_points, automatic_detections, max_automatic=20, max_manual=5,
+                                               seed=6)
+
     # Sort the selected 25 image sets to have images where points were detected automatically first
     image_points_25 = image_points_automatic + image_points_manual
-
     # Filter (max) 10 and 5 image sets from images where points were detected automatically for runs 2 and 3
-    #image_points_10 = random.sample(image_points_automatic, min(10, len(image_points_automatic)))
-    #image_points_5 = random.sample(image_points_automatic, min(5, len(image_points_automatic)))
     image_points_10 = image_points_automatic[:10]
+    # image_points_10 = random.sample(image_points_automatic, min(10, len(image_points_automatic)))
     image_points_5 = image_points_automatic[:5]
+    # image_points_5 = random.sample(image_points_automatic, min(5, len(image_points_automatic)))
 
     # Image points for every run
     image_points_runs = [image_points_25, image_points_10, image_points_5]
@@ -621,7 +701,8 @@ if __name__ == "__main__":
         discarded_image_points, discarded_image_points_idx = discard_bad_image_points(image_points_25,
                                                                                       image_shape,
                                                                                       chessboard_shape,
-                                                                                      chessboard_square_size)
+                                                                                      chessboard_square_size,
+                                                                                      discard_threshold=0.15)
 
     # Run calibrations with kept image points
     print("Running Calibration Run 4 with " + str(len(kept_image_points)) + "/" + str(len(image_points_runs[0])) +
@@ -636,6 +717,10 @@ if __name__ == "__main__":
                                kept_image_points, image_shape, chessboard_shape, chessboard_square_size,
                                4, calibrations_path, calibration_output_filename="calibration_run_4_results.npz")
 
+    # Map None to per view error where image points were removed from the original 25 images for plotting
+    per_view_err_map = np.full((len(image_points_25), 1), [None])
+    per_view_err_map[kept_image_points_idx] = per_view_err[:len(kept_image_points_idx)]
+
     # Plot results with and without discarded image points
-    plot_calibration_results([errs[0], err], [per_view_errs[0], per_view_err], [mtxs[0], mtx], [in_stds[0], in_std],
+    plot_calibration_results([errs[0], err], [per_view_errs[0], per_view_err_map], [mtxs[0], mtx], [in_stds[0], in_std],
                              plots_path, plot_output_filename="intrinsic_params_discard_bad_images.png")
