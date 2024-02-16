@@ -631,6 +631,9 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
         os.makedirs(plot_output_path)
     plt.savefig(os.path.join(plot_output_path, plot_output_filename))
 
+    # Close figure
+    plt.close()
+
 
 if __name__ == "__main__":
     random.seed(0)
@@ -655,9 +658,9 @@ if __name__ == "__main__":
                                                                         input_filename="extracted_image_points.npz")
 
     # Keep (max) 20 automatic detection images and 5 manual detection images for run 1
-    image_points_automatic, image_points_manual,\
+    image_points_automatic, image_points_manual, \
         image_points_idx = sample_image_points(image_points, automatic_detections, max_automatic=20, max_manual=5,
-                                               seed=6)
+                                               seed=775)
 
     # Sort the selected 25 image sets to have images where points were detected automatically first
     image_points_25 = image_points_automatic + image_points_manual
@@ -679,7 +682,8 @@ if __name__ == "__main__":
         err, mtx, dist, rvecs, tvecs, in_std, ex_std, per_view_err = calibrate_camera(image_points_runs[run],
                                                                                       image_shape,
                                                                                       chessboard_shape,
-                                                                                      chessboard_square_size)
+                                                                                      chessboard_square_size,
+                                                                                      print_results=True)
         # Save run results
         errs.append(err)
         per_view_errs.append(per_view_err)
@@ -697,7 +701,7 @@ if __name__ == "__main__":
 
     # Discarding bad image points from the 25 images of run 1
     print("Discarding images from Run 1 with bad calibration performance.")
-    kept_image_points, kept_image_points_idx,\
+    kept_image_points, kept_image_points_idx, \
         discarded_image_points, discarded_image_points_idx = discard_bad_image_points(image_points_25,
                                                                                       image_shape,
                                                                                       chessboard_shape,
@@ -710,7 +714,8 @@ if __name__ == "__main__":
     err, mtx, dist, rvecs, tvecs, in_std, ex_std, per_view_err = calibrate_camera(kept_image_points,
                                                                                   image_shape,
                                                                                   chessboard_shape,
-                                                                                  chessboard_square_size)
+                                                                                  chessboard_square_size,
+                                                                                  print_results=True)
 
     # Output calibration run results to file
     output_calibration_results(err, mtx, dist, rvecs, tvecs, in_std, ex_std, per_view_err,
