@@ -292,8 +292,11 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
     # Format and get dimensions for images
     image_shape = uniform_image_dimensions(images_path)
 
+    # Loop for every image to find points
     image_points = []
     automatic_detections = []
+    # Sort images
+    images_path_list = sorted(images_path_list, key=lambda x: int(x.split("\\")[-1].split(".")[0]))
     for image_path in images_path_list:
         # Read image and resize for viewing
         current_image = cv2.imread(image_path)
@@ -360,7 +363,7 @@ def sample_image_points(image_points, automatic_detections, max_automatic=20, ma
     :param max_manual: max images where points were detected manually
     :param seed: seed for randomization
     :return: returns array of sampled 2D chessboard automatic detection image points, array of sampled 2D chessboard
-             manual detection image points, the ids of the images that were sampled
+             manual detection image points, the ids of the images that were sampled in the original image points array
     """
     # Seed for randomization
     random.seed(seed)
@@ -376,16 +379,15 @@ def sample_image_points(image_points, automatic_detections, max_automatic=20, ma
     random.shuffle(image_points_manual)
     image_points_manual = random.sample(image_points_manual, min(max_manual, len(image_points_manual)))
 
-    # Get the automatic detection image ids of the sampled points in the original array
+    # Get the image ids of the sampled points in the original array and preserve shuffle order with automatic first
+    image_points_tuples = [tuple(points.flatten()) for points in image_points]
     image_points_automatic_tuples = [tuple(points.flatten()) for points in image_points_automatic]
-    image_points_automatic_idx = [idx + 1 for idx, points in enumerate(image_points)
-                                  if tuple(points.flatten()) in image_points_automatic_tuples]
-    # Get the manual detection image ids of the sampled image points in the original array
     image_points_manual_tuples = [tuple(points.flatten()) for points in image_points_manual]
-    image_points_manual_idx = [idx + 1 for idx, points in enumerate(image_points)
-                               if tuple(points.flatten()) in image_points_manual_tuples]
-    # Combine sampled automatic detection and manual detection image ids
-    image_points_idx = sorted(image_points_automatic_idx + image_points_manual_idx)
+    image_points_idx = []
+    for points in image_points_automatic_tuples + image_points_manual_tuples:
+        for idx, points_original in enumerate(image_points_tuples):
+            if points == points_original:
+                image_points_idx.append(idx)
 
     return image_points_automatic, image_points_manual, image_points_idx
 
@@ -636,39 +638,29 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
 
 
 if __name__ == "__main__":
-    random.seed(0)
     chessboard_shape = (9, 6)
     chessboard_square_size = 25
-    images_path = "train_images2"
+    images_path = "calibration_images"
     plots_path = "plots"
     calibrations_path = "calibrations"
-    """
+
     # Extract image points from training images
     image_points, automatic_detections, image_shape = extract_image_points(chessboard_shape, images_path,
                                                                            more_exact_corners=True,
-                                                                           result_time_visible=1)
+                                                                           result_time_visible=1000)
 
     # Save extracted image points to file
     output_extracted_image_points(image_points, automatic_detections, image_shape, calibrations_path,
                                   output_filename="extracted_image_points.npz")
-    """
-    # Load extracted image points from file (for pre-saved extraction)
-    image_points, \
-        automatic_detections, image_shape = load_extracted_image_points(calibrations_path,
-                                                                        input_filename="extracted_image_points.npz")
-
-    # Keep (max) 20 automatic detection images and 5 manual detection images for run 1
-    image_points_automatic, image_points_manual, \
-        image_points_idx = sample_image_points(image_points, automatic_detections, max_automatic=20, max_manual=5,
-                                               seed=775)
 
     # Sort the selected 25 image sets to have images where points were detected automatically first
+    image_points_automatic = [points for points, automatic in zip(image_points, automatic_detections) if automatic]
+    image_points_manual = [points for points, automatic in zip(image_points, automatic_detections) if not automatic]
     image_points_25 = image_points_automatic + image_points_manual
-    # Filter (max) 10 and 5 image sets from images where points were detected automatically for runs 2 and 3
+    # Filter 10 and 5 image sets from images where points were detected automatically for runs 2 and 3
+    # Run 3 sets are a subset of run 2 sets which are a subset of run 1 sets for automatic points
     image_points_10 = image_points_automatic[:10]
-    # image_points_10 = random.sample(image_points_automatic, min(10, len(image_points_automatic)))
     image_points_5 = image_points_automatic[:5]
-    # image_points_5 = random.sample(image_points_automatic, min(5, len(image_points_automatic)))
 
     # Image points for every run
     image_points_runs = [image_points_25, image_points_10, image_points_5]
