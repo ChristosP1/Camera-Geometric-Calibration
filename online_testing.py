@@ -355,29 +355,38 @@ if __name__ == "__main__":
                                                           calibration_input_filename="calibration_run_4_results.npz")
 
     # Evaluate run 1 parameters using test images
+    print("Evaluating Calibration Run 1 (25 images) with an image.")
     test_camera_parameters_with_images(chessboard_shape, chessboard_square_size, mtx_1, dist_1, test_input_path,
                                        results_run_1_path, more_exact_corners=True, pnp_ransac=False)
+    print("Evaluating Calibration Run 1 (25 images) with a video.")
     # Evaluate run 1 parameters using test videos
     test_camera_parameters_with_videos(chessboard_shape, chessboard_square_size, mtx_1, dist_1, test_input_path,
                                        results_run_1_path, more_exact_corners=True, pnp_ransac=False)
 
     # Evaluate run 2 parameters using test images
+    print("Evaluating Calibration Run 2 (10 images) with an image.")
     test_camera_parameters_with_images(chessboard_shape, chessboard_square_size, mtx_2, dist_2, test_input_path,
                                        results_run_2_path, more_exact_corners=True, pnp_ransac=False)
     # Evaluate run 2 parameters using test videos
+    print("Evaluating Calibration Run 2 (10 images) with a video.")
     test_camera_parameters_with_videos(chessboard_shape, chessboard_square_size, mtx_2, dist_2, test_input_path,
                                        results_run_2_path, more_exact_corners=True, pnp_ransac=False)
 
     # Evaluate run 3 parameters using test images
+    print("Evaluating Calibration Run 3 (5 images) with an image.")
     test_camera_parameters_with_images(chessboard_shape, chessboard_square_size, mtx_3, dist_3, test_input_path,
                                        results_run_3_path, more_exact_corners=True, pnp_ransac=False)
     # Evaluate run 3 parameters using test videos
+    print("Evaluating Calibration Run 3 (5 images) with a video.")
     test_camera_parameters_with_videos(chessboard_shape, chessboard_square_size, mtx_3, dist_3, test_input_path,
                                        results_run_3_path, more_exact_corners=True, pnp_ransac=False)
 
     # Evaluate run 4 parameters using test images
+    print("Evaluating Calibration Run 4 (subset of 25 images from discarding) with an image.")
     test_camera_parameters_with_images(chessboard_shape, chessboard_square_size, mtx_4, dist_4, test_input_path,
                                        results_run_4_path, more_exact_corners=True, pnp_ransac=False)
-    # Evaluate run 4 parameters using test videos
+    print("Evaluating Calibration Run 4 (subset of 25 images from discarding) with a video.")
     test_camera_parameters_with_videos(chessboard_shape, chessboard_square_size, mtx_4, dist_4, test_input_path,
                                        results_run_4_path, more_exact_corners=True, pnp_ransac=False)
+
+    print("\nResults for every run have been saved to the evaluation outputs folder.")
