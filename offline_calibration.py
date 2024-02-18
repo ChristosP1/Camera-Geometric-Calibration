@@ -4,102 +4,11 @@ import matplotlib.pyplot as plt
 import os
 from copy import deepcopy
 import random
-import tkinter as tk
+import utils
 
 # Global variables for manual corner detection callback
 manual_corners = []
 images_temp = []
-
-
-def show_warning(message_id):
-    """
-    Shows warnings to the user during execution of the program. Possible warnings include:
-    - train_empty for empty training image folder
-    - test_empty for empty testing image folder
-    - images_need_crop for images without equal dimensions
-    - image_none for image that fails to be loaded
-    - incorrect_num_corners for wrong number of chessboard corners
-    - no_automatic_corners for automatic corner detection failure
-    - calibration_results_unequal for array length of camera calibration results being unequal
-
-    :param message_id: message ID string to print appropriate message
-    """
-    # Define the possible messages
-    messages = {
-        "train_empty": "Train image folder is empty!",
-        "test_empty": "Test image folder is empty!",
-        "images_need_crop": "Not all images have the same dimensions! Images will be cropped!",
-        "image_none": "Image could not be loaded and will be skipped!",
-        "incorrect_num_corners": "Incorrect number of corners given!",
-        "no_automatic_corners": "Corners not detected automatically! Need to extract manually! " +
-                                "Select the 4 corners with left clicks and then press any key to continue. " +
-                                "To undo selections in order use right clicks.",
-        "calibration_results_unequal": "Plotting error, array lengths of camera calibration results are not the same!"
-    }
-
-    # Fetch the appropriate message
-    message = messages.get(message_id, "Unknown Warning")
-
-    # Create the main window
-    root = tk.Tk()
-    root.title("Warning")
-
-    # Create a label for the message
-    label = tk.Label(root, text=message, padx=20, pady=20)
-    label.pack()
-
-    # Start the GUI event loop
-    root.mainloop()
-
-
-def uniform_image_dimensions(directory_path):
-    """
-    Checks whether all images in given directory have the same width and height dimensions. Crops images to match
-    minimum dimensions found if not.
-
-    :param directory_path: directory path
-    :return: returns the final shape of the images (original if all the same, otherwise cropped)
-    """
-    # Get list of image file paths
-    image_paths = [os.path.join(directory_path, file) for file in os.listdir(directory_path) if file.endswith(".jpg")]
-
-    # Initialize variables to store the dimensions
-    min_width, min_height = np.inf, np.inf
-    dimensions_set = set()
-
-    # First pass to find dimensions and check uniformity
-    img = None
-    for image_path in image_paths:
-        img = cv2.imread(image_path)
-        if img is not None:
-            h, w = img.shape[:2]
-            dimensions_set.add((h, w))
-            min_width, min_height = min(min_width, w), min(min_height, h)
-
-    # Check if all images have the same dimensions
-    if len(dimensions_set) == 1:
-        return img.shape[:2]
-    else:
-        show_warning("images_need_cropping")
-
-    # Second pass to crop images
-    cropped_img = None
-    for image_path in image_paths:
-        img = cv2.imread(image_path)
-        if img is not None:
-            h, w = img.shape[:2]
-            if h > min_height or w > min_width:
-                # Calculate crop dimensions
-                top = (h - min_height) // 2
-                bottom = h - min_height - top
-                left = (w - min_width) // 2
-                right = w - min_width - left
-
-                # Crop and save the image
-                cropped_img = img[top:h - bottom, left:w - right]
-                cv2.imwrite(image_path, cropped_img)
-
-    return cropped_img.shape[:2]
 
 
 def manual_corner_selection(event, x, y, flags, param):
@@ -193,7 +102,7 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
     :return: returns array of 2D interpolated image points or None if wrong number of corners given (unequal to 4)
     """
     if len(corners) != 4:
-        show_warning("incorrect_num_corners")
+        utils.show_warning("incorrect_num_corners")
         return None
 
     # Sort corners to (top-left, top-right, bottom-right, bottom-left)
@@ -265,7 +174,7 @@ def interpolate_points_from_manual_corners(corners, chessboard_shape, use_perspe
     return np.reshape(interpolated_points, (-1, 1, 2))
 
 
-def extract_image_points(chessboard_shape, images_path="train_images", more_exact_corners=True,
+def extract_image_points(chessboard_shape, images_input_path="calibration_inputs", more_exact_corners=True,
                          result_time_visible=1000):
     """
     Parses training images from given directory and detects chessboard corners used for camera calibration. If automatic
@@ -273,7 +182,7 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
     window of the image.
 
     :param chessboard_shape: chessboard number of intersection points vertically and horizontally (vertical, horizontal)
-    :param images_path: training images directory path
+    :param images_input_path: training images directory path
     :param more_exact_corners: increases corner accuracy with more exact corner positions if set to True, otherwise
                                keeps original corner positions.
     :param result_time_visible: milliseconds to keep result of corner extraction for an image to screen, 0 to wait for
@@ -284,25 +193,25 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
     global manual_corners, images_temp
 
     # Check that images are present
-    images_path_list = [os.path.join(images_path, file) for file in os.listdir(images_path) if file.endswith(".jpg")]
+    images_path_list = [os.path.join(images_input_path, file) for file in os.listdir(images_input_path)
+                        if file.endswith(".jpg")]
     if not images_path_list:
-        show_warning("train_empty")
+        utils.show_warning("train_empty")
         return None
-
+    # Sort images
+    images_path_list = sorted(images_path_list, key=lambda x: int(x.split("\\")[-1].split(".")[0]))
     # Format and get dimensions for images
-    image_shape = uniform_image_dimensions(images_path)
+    image_shape = utils.uniform_image_dimensions(images_path)
 
     # Loop for every image to find points
     image_points = []
     automatic_detections = []
-    # Sort images
-    images_path_list = sorted(images_path_list, key=lambda x: int(x.split("\\")[-1].split(".")[0]))
     for image_path in images_path_list:
         # Read image and resize for viewing
         current_image = cv2.imread(image_path)
         current_image = cv2.resize(current_image, (0, 0), fx=0.5, fy=0.5)
         if current_image is None:
-            show_warning("image_none")
+            utils.show_warning("image_none")
             continue
 
         # Try to detect the chessboard corners automatically using grayscale image and all flags
@@ -314,7 +223,7 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
 
         # No automatic corner detection, going to manual corner selection
         if not ret:
-            show_warning("no_automatic_corners")
+            utils.show_warning("no_automatic_corners")
 
             # Corner selection window, calls callback function
             images_temp.append(deepcopy(current_image))
@@ -345,7 +254,10 @@ def extract_image_points(chessboard_shape, images_path="train_images", more_exac
         image_points.append(corners)
         automatic_detections.append(ret)
 
+        # Draw extracted corners on image
         cv2.drawChessboardCorners(current_image, chessboard_shape, corners, True)
+
+        # Show results of extraction
         cv2.imshow("Extracted Chessboard Corners", current_image)
         cv2.waitKey(result_time_visible)
         cv2.destroyAllWindows()
@@ -392,7 +304,7 @@ def sample_image_points(image_points, automatic_detections, max_automatic=20, ma
     return image_points_automatic, image_points_manual, image_points_idx
 
 
-def output_extracted_image_points(image_points, automatic_detections, image_shape, output_path="calibrations",
+def output_extracted_image_points(image_points, automatic_detections, image_shape, output_path="calibration_outputs",
                                   output_filename="extracted_image_points.npz"):
     """
     Outputs image point extraction outputs to file.
@@ -407,12 +319,12 @@ def output_extracted_image_points(image_points, automatic_detections, image_shap
              image_points=image_points, automatic_detections=automatic_detections, image_shape=image_shape)
 
 
-def load_extracted_image_points(input_path="calibrations", input_filename="extracted_image_points.npz"):
+def load_extracted_image_points(input_path="calibration_outputs", input_filename="extracted_image_points.npz"):
     """
     Loads image point extraction outputs from file.
 
-    :param input_path: output directory path
-    :param input_filename: output file name (including extension)
+    :param input_path: input directory path
+    :param input_filename: input file name (including extension)
     :return: returns loaded 2D chessboard image points for every training image, array of booleans of whether each
              training image's points were detected automatically, shape of the images
     """
@@ -428,7 +340,7 @@ def load_extracted_image_points(input_path="calibrations", input_filename="extra
     return image_points, automatic_detections, image_shape
 
 
-def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_square_size, print_results=True):
+def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_square_size=1, print_results=True):
     """
     Calibrates camera using extracted image points and calculated object points by estimating the camera parameters.
 
@@ -458,6 +370,7 @@ def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_squ
                                                                                              None, None)
     # Print results of calibration
     if print_results:
+        print("Camera Matrix:")
         print(mtx)
         print("Mean Reprojection Error:", f"{err:.2f}")
         print("Focal Length Fx:", f"{mtx[0][0]:.2f} ± {in_std[0][0]:.2f}")
@@ -469,7 +382,7 @@ def calibrate_camera(image_points, image_shape, chessboard_shape, chessboard_squ
     return err, mtx, dist, rvecs, tvecs, in_std, ex_std, per_view_err
 
 
-def discard_bad_image_points(image_points, image_shape, chessboard_shape, chessboard_square_size,
+def discard_bad_image_points(image_points, image_shape, chessboard_shape, chessboard_square_size=1,
                              discard_threshold=0.15):
     """
     Discards image points from images that make calibration performance worse. Calibrates camera using all image points
@@ -512,10 +425,11 @@ def discard_bad_image_points(image_points, image_shape, chessboard_shape, chessb
 
 
 def output_calibration_results(err, mtx, dist, rvecs, tvecs, in_std, ex_std, per_view_err, image_points, image_shape,
-                               chessboard_shape, chessboard_square_size, run, calibration_output_path="calibrations",
+                               chessboard_shape, chessboard_square_size, run,
+                               calibration_output_path="calibration_outputs",
                                calibration_output_filename="calibration_results.npz"):
     """
-    Outputs results of camera calibration to file.
+    Outputs results of camera calibration and info to file.
 
     :param err: mean reprojection error
     :param mtx: camera matrix
@@ -555,7 +469,7 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
     :param plot_output_filename: plot output file name (including extension)
     """
     if len(errs) != len(per_view_errs) != len(mtxs) != len(in_stds):
-        show_warning("calibration_results_unequal")
+        utils.show_warning("calibration_results_unequal")
         return
 
     # Extract intrinsic parameters
@@ -638,11 +552,14 @@ def plot_calibration_results(errs, per_view_errs, mtxs, in_stds, plot_output_pat
 
 
 if __name__ == "__main__":
+    # Chessboard vertical and horizontal squares and their size in mm
     chessboard_shape = (9, 6)
     chessboard_square_size = 25
-    images_path = "calibration_images"
-    plots_path = "plots"
-    calibrations_path = "calibrations"
+
+    # Directories
+    images_path = "calibration_inputs"
+    plots_path = "calibration_plots"
+    calibrations_path = "calibration_outputs"
 
     # Extract image points from training images
     image_points, automatic_detections, image_shape = extract_image_points(chessboard_shape, images_path,
